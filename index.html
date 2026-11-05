@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="직원 호출">
+<title>직원 호출</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;700&display=swap">
+<style>
+:root{
+  --bg:#f3f5f2; --fg:#1b2420; --muted:#5d6b64;
+  --btn:#e8402e; --btn-press:#c9301f; --ok:#1f9d5c; --ring:#e8402e33;
+  --display:"Black Han Sans","Noto Sans KR",system-ui,sans-serif;
+  --body:"Noto Sans KR",system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#121715; --fg:#eef2ef; --muted:#9aa8a1; --btn:#f0533f; --btn-press:#d43e2b; --ok:#2fbf74; --ring:#f0533f40; color-scheme:dark}}
+[hidden]{display:none!important}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4vmin;
+  padding:env(safe-area-inset-top) max(16px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px,env(safe-area-inset-left));
+  user-select:none;-webkit-user-select:none;text-align:center;overflow:hidden}
+.notice{font-size:clamp(18px,3.4vmin,30px);color:var(--muted);line-height:1.5;margin:0}
+.notice b{color:var(--fg)}
+#call{width:min(62vmin,460px);aspect-ratio:1;border-radius:50%;border:0;cursor:pointer;
+  background:var(--btn);color:#fff;font-family:var(--display);font-size:clamp(40px,10vmin,96px);line-height:1.15;
+  box-shadow:0 1.6vmin 0 var(--btn-press),0 0 0 3vmin var(--ring);
+  transition:transform .08s,box-shadow .08s,background .2s}
+#call:active{transform:translateY(1.2vmin);box-shadow:0 .4vmin 0 var(--btn-press),0 0 0 3vmin var(--ring)}
+#call small{display:block;font-family:var(--body);font-weight:700;font-size:.3em;opacity:.9;margin-top:.5em}
+#call.sent{background:var(--ok);box-shadow:0 1.6vmin 0 #157244,0 0 0 3vmin #1f9d5c33}
+#call:disabled{cursor:default}
+#status{min-height:1.6em;font-size:clamp(18px,3.2vmin,28px);font-weight:700;margin:0}
+#setup{max-width:520px;display:flex;flex-direction:column;gap:12px;font-size:16px}
+#setup input{font:inherit;padding:12px;border-radius:10px;border:2px solid var(--muted);background:transparent;color:var(--fg)}
+#setup button{font:inherit;font-weight:700;padding:12px;border-radius:10px;border:0;background:var(--fg);color:var(--bg)}
+@media (prefers-reduced-motion:reduce){#call{transition:none}}
+</style>
+</head>
+<body>
+<section id="setup" hidden>
+  <p class="notice"><b>처음 설정</b></p>
+  <ol style="text-align:left;line-height:1.7;margin:0;padding-left:1.4em">
+    <li>BotFather에게 받은 <b>봇 토큰</b>을 붙여넣으세요.</li>
+    <li>폰 텔레그램에서 내 봇에게 아무 메시지나 보내세요.</li>
+    <li><b>연결하기</b>를 누르세요.</li>
+  </ol>
+  <input id="tokenInput" placeholder="123456789:AAH..." autocapitalize="off" autocomplete="off" spellcheck="false">
+  <button id="connect">연결하기</button>
+  <p id="setupMsg" style="margin:0;min-height:1.5em;font-weight:700"></p>
+</section>
+
+<main id="app" hidden style="display:contents">
+  <p class="notice"><b>지금 재고 정리 중이에요.</b><br>아래 버튼을 누르면 직원이 바로 나와요.</p>
+  <button id="call">직원 호출<small>눌러주세요</small></button>
+  <p id="status" aria-live="polite"></p>
+</main>
+<div id="reset" aria-hidden="true" style="position:fixed;right:0;bottom:0;width:80px;height:80px"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+  clear(){ try { localStorage.removeItem("token"); localStorage.removeItem("chat"); } catch(e){} }
+};
+const params = new URLSearchParams(location.search);
+if (params.get("token")) store.set("token", params.get("token"));
+if (params.get("chat")) store.set("chat", params.get("chat"));
+let token = store.get("token"), chat = store.get("chat");
+
+function show(){ const ready = token && chat; $("app").hidden = !ready; $("setup").hidden = !!ready;
+  if (!ready && token) $("tokenInput").value = token; }
+show();
+
+// 텔레그램 API 호출 (form 본문이라 CORS 사전요청 없음)
+async function tg(method, data){
+  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`,
+    { method: "POST", body: new URLSearchParams(data || {}) });
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.description || "error");
+  return j.result;
+}
+
+$("connect").onclick = async () => {
+  token = $("tokenInput").value.trim();
+  const msg = $("setupMsg");
+  if (!token) { msg.textContent = "봇 토큰을 입력해 주세요."; return; }
+  msg.textContent = "찾는 중…";
+  try {
+    const updates = await tg("getUpdates");
+    const last = updates.reverse().find(u => u.message);
+    if (!last) { msg.textContent = "메시지를 못 찾았어요. 폰에서 봇에게 메시지를 보낸 뒤 다시 눌러주세요."; return; }
+    chat = String(last.message.chat.id);
+    store.set("token", token); store.set("chat", chat);
+    await tg("sendMessage", { chat_id: chat, text: "✅ 연결됐어요! 이제 계산대 버튼을 누르면 여기로 알림이 와요." });
+    show();
+  } catch (e) {
+    msg.textContent = "연결 실패: 토큰이 맞는지, 인터넷이 되는지 확인해 주세요.";
+  }
+};
+
+// 오른쪽 아래 구석을 3초 누르면 설정 초기화
+let pressTimer;
+$("reset").addEventListener("pointerdown", () => { pressTimer = setTimeout(() => { store.clear(); token = chat = null; show(); }, 3000); });
+["pointerup","pointerleave","pointercancel"].forEach(ev => $("reset").addEventListener(ev, () => clearTimeout(pressTimer)));
+
+const btn = $("call"), status = $("status");
+const COOLDOWN = 15000;
+
+btn.onclick = async () => {
+  btn.disabled = true;
+  status.textContent = "부르는 중…";
+  try {
+    const t = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    await tg("sendMessage", { chat_id: chat, text: `🔔 손님 왔어요! (${t})` });
+    btn.classList.add("sent");
+    btn.innerHTML = "불렀어요!<small>잠시만 기다려 주세요</small>";
+    status.textContent = "직원에게 알림을 보냈어요 🙂";
+  } catch (e) {
+    status.textContent = "전송 실패. 인터넷 연결을 확인해 주세요.";
+    btn.disabled = false;
+    return;
+  }
+  setTimeout(() => {
+    btn.classList.remove("sent");
+    btn.innerHTML = "직원 호출<small>눌러주세요</small>";
+    status.textContent = "";
+    btn.disabled = false;
+  }, COOLDOWN);
+};
+</script>
+</body>
+</html>
