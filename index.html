@@ -82,14 +82,16 @@ show();
 // 텔레그램 API 호출 (form 본문이라 CORS 사전요청 없음)
 async function tg(method, data){
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`,
-    { method: "POST", body: new URLSearchParams(data || {}) });
+    { method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(data || {}).toString() });
   const j = await res.json();
   if (!j.ok) throw new Error(j.description || "error");
   return j.result;
 }
 
 $("connect").onclick = async () => {
-  token = $("tokenInput").value.trim();
+  token = $("tokenInput").value.replace(/\s+/g, "");
   const msg = $("setupMsg");
   if (!token) { msg.textContent = "봇 토큰을 입력해 주세요."; return; }
   msg.textContent = "찾는 중…";
@@ -102,7 +104,10 @@ $("connect").onclick = async () => {
     await tg("sendMessage", { chat_id: chat, text: "✅ 연결됐어요! 이제 계산대 버튼을 누르면 여기로 알림이 와요." });
     show();
   } catch (e) {
-    msg.textContent = "연결 실패: 토큰이 맞는지, 인터넷이 되는지 확인해 주세요.";
+    const r = String(e.message || e);
+    msg.textContent = /Unauthorized|Not Found/i.test(r) ? "토큰이 틀렸어요. BotFather에서 다시 복사해 주세요."
+      : /Failed to fetch|Load failed|NetworkError/i.test(r) ? "텔레그램 서버에 연결이 안 돼요. 인터넷을 확인해 주세요."
+      : "연결 실패: " + r;
   }
 };
 
